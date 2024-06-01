@@ -3,7 +3,6 @@ const dotenv = require('dotenv');
 // Load environment variables from .env file
 dotenv.config();
 const accountSid = process.env.twilio_accountSid;
-console.log('accountSid:', accountSid);
 const authToken =  process.env.twilio_authToken;
 const client = require('twilio')(accountSid, authToken);
 const otpStore = {};
