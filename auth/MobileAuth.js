@@ -1,8 +1,14 @@
-const accountSid = 'AC6b540ca3d1db1ada63d421de5a0b611c';
-const authToken = 'ede4a5bd8f07a1d5ad6f6f80dff12353';
-const client = require('twilio')(accountSid, authToken);
-const otpStore = {}; // Store OTPs temporarily
 
+
+const dotenv = require('dotenv');
+
+// Load environment variables from .env file
+dotenv.config();
+const accountSid = process.env.twilio_accountSid;
+console.log('accountSid:', accountSid);
+const authToken =  process.env.twilio_authToken;
+const client = require('twilio')(accountSid, authToken);
+const otpStore = {};
 const sendVerificationCode = async (req, res) => {
   const  mobileNumber  = req.body.mobileNumber;
   const otp = Math.floor(100000 + Math.random() * 900000).toString();
@@ -10,7 +16,7 @@ const sendVerificationCode = async (req, res) => {
   try {
     await client.messages.create({
       body: `Your OTP Verification code is ${otp}`,
-      from: '+13256320066',
+      from: process.env.twilio_from_number,
       to:mobileNumber,
 
     });
