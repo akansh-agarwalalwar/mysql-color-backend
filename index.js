@@ -1,10 +1,22 @@
 const express = require("express");
 const cors = require("cors");
 const mysql = require('mysql2/promise');
+const bodyParser = require('body-parser');
+const mobileAuth = require('./router/router');
 const app = express();
+app.use(bodyParser.json());
+const dotenv = require("dotenv");
+dotenv.config();  
 
 app.use(express.json());
-app.use(cors());
+app.use(bodyParser.json());
+app.use(cors({
+  origin: "*",
+  methods: ['POST', 'GET'],
+  optionsSuccessStatus: 200
+}));
+
+const PORT = process.env.PORT || 3001;
 
 const con = mysql.createPool({
   user: 'root',
@@ -12,6 +24,32 @@ const con = mysql.createPool({
   host: 'localhost',
   database: 'register'
 });
+
+// Ensure table exists
+async function ensureTableExists() {
+  try {
+    const createTableQuery = `
+      CREATE TABLE IF NOT EXISTS register (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(255) NOT NULL,
+        mobileNumber VARCHAR(15) NOT NULL UNIQUE,
+        password VARCHAR(255) NOT NULL,
+        confirmPassword VARCHAR(255) NOT NULL,
+        referenceCode VARCHAR(255)
+      );
+    `;
+    await con.execute(createTableQuery);
+    console.log("Table 'register' ensured in the database.");
+  } catch (err) {
+    console.error("Error ensuring the table:", err);
+  }
+}
+
+// Call the function to ensure the table exists
+ensureTableExists();
+
+app.use('/api/otp', mobileAuth);
+
 app.post("/register", async (req, res) => {
   const { username, mobileNumber, password, confirmPassword, referenceCode } = req.body;
 
@@ -79,7 +117,6 @@ app.post("/forgot-password", async (req, res) => {
   }
 });
 
-
-app.listen(3001, () => {
-  console.log("Server is running on port 3001");
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
