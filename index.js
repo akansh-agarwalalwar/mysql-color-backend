@@ -23,7 +23,7 @@ const con = mysql.createPool({
   user: 'root',
   password: 'Akansh@2003',
   host: 'localhost',
-  database: 'register'
+  database: 'PERFECTORSE'
 });
 
 async function ensureTableExists() {
