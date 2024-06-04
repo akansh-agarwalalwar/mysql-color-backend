@@ -4,18 +4,23 @@ const mysql = require('mysql2/promise');
 const bodyParser = require('body-parser');
 const nodemailer = require('nodemailer');
 const otpGenerator = require('otp-generator');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 app.use(bodyParser.json());
+app.use(cookieParser());
 const dotenv = require("dotenv");
 dotenv.config();
 
 app.use(express.json());
-app.use(cors({
-  origin: "*",
+const corsOptions = {
+  origin: 'http://localhost:3000', // specify the frontend URL
   methods: ['POST', 'GET'],
+  credentials: true, // allow credentials
   optionsSuccessStatus: 200
-}));
+};
+
+app.use(cors(corsOptions));
 
 const PORT = process.env.PORT || 4000;
 
@@ -36,8 +41,10 @@ async function ensureTableExists() {
         email VARCHAR(255) NOT NULL UNIQUE,
         password VARCHAR(255) NOT NULL,
         confirmPassword VARCHAR(255) NOT NULL,
-        referenceCode VARCHAR(255),
-        IDOfUser VARCHAR(10) 
+        referenceCode VARCHAR(10),
+        IDOfUser VARCHAR(10),
+        userReferenceCode VARCHAR(10),
+        balance DECIMAL(10, 2) DEFAULT 0
       );
     `;
     await con.execute(createTableQuery);
@@ -57,13 +64,11 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-
 async function generateRandomUserId() {
   // Generate a random 10-digit number
   const userId = Math.floor(1000000000 + Math.random() * 9000000000);
   return userId;
 }
-
 
 const otpStore = {}; // In-memory store for OTPs
 app.post("/register", async (req, res) => {
@@ -72,7 +77,6 @@ app.post("/register", async (req, res) => {
   if (!username || !mobileNumber || !email || !password || !confirmPassword) {
     return res.status(400).send({ message: "All fields are required" });
   }
-
 
   try {
     // Generate a random user ID
@@ -96,16 +100,25 @@ app.post("/register", async (req, res) => {
       return res.status(400).send({ message: "Mobile number already exists" });
     }
 
-    // If user doesn't exist, proceed with registration
-    // const [rows] = await con.execute(
-    //   "INSERT INTO register (username, mobileNumber, email, password, confirmPassword, referenceCode) VALUES (?, ?, ?, ?, ?, ?)",
-    //   [username, mobileNumber, email, password, confirmPassword, referenceCode]
-    // );
+    // Check if the reference code exists in the table
     const [rows] = await con.execute(
-      "INSERT INTO register (username, mobileNumber, email, password, confirmPassword, referenceCode, IDOfUser) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [username, mobileNumber, email, password, confirmPassword, referenceCode, userId]
+      "SELECT * FROM register WHERE userReferenceCode = ?",
+      [referenceCode]
     );
-    const insertedUserId = rows.insertId;
+
+    let balance = 20;
+    if (rows.length > 0) {
+      balance = 30;
+    }
+
+    // If user doesn't exist, proceed with registration
+    const userReferenceCode = otpGenerator.generate(7, { upperCaseAlphabets: true, specialChars: false });
+    const [result] = await con.execute(
+      "INSERT INTO register (username, mobileNumber, email, password, confirmPassword, referenceCode, IDOfUser, userReferenceCode, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [username, mobileNumber, email, password, confirmPassword, referenceCode, userId, userReferenceCode, balance]
+    );
+
+    const insertedUserId = result.insertId;
     res.status(200).send({ message: "Registration Successful", userId: insertedUserId });
   } catch (err) {
     console.error("Error during registration:", err);
@@ -122,14 +135,14 @@ app.post("/login", async (req, res) => {
 
   try {
     const [rows] = await con.execute(
-      "SELECT IDOfUser, username FROM register WHERE email = ? AND password = ?",
+      "SELECT IDOfUser, username, balance FROM register WHERE email = ? AND password = ?",
       [email, password]
     );
 
     if (rows.length === 1) {
       const user = rows[0];
-      return res.status(200).send({ message: "Login successful", userId: user.IDOfUser, username: user.username });
-      
+      res.cookie('user', { userId: user.IDOfUser, username: user.username, balance: user.balance }, { httpOnly: true, maxAge: 24 * 60 * 60 * 1000, sameSite: 'Lax' }); // 1 day
+      return res.status(200).send({ message: "Login successful", userId: user.IDOfUser, username: user.username, balance: user.balance });
     } else {
       return res.status(401).send({ message: "Invalid email or password" });
     }
@@ -140,6 +153,11 @@ app.post("/login", async (req, res) => {
 });
 
 
+
+app.post("/logout", (req, res) => {
+  res.clearCookie('user');
+  res.status(200).send({ message: "Logout successful" });
+});
 
 app.post("/send-email-otp", async (req, res) => {
   const { email } = req.body;
@@ -158,7 +176,7 @@ app.post("/send-email-otp", async (req, res) => {
     res.status(200).send({ message: 'OTP sent successfully' });
   } catch (error) {
     console.error('Error sending OTP:', error);
-    res.status(500).send({ message: 'Failed to send OTP' });
+    res.status(500).send({ message: 'Failed to send OTP' }); 
   }
 });
 
@@ -172,6 +190,29 @@ app.post("/verify-email-otp", (req, res) => {
     res.status(400).send({ message: 'Invalid OTP' });
   }
 });
+app.get("/balance", async (req, res) => {
+  const userId = req.cookies.user && req.cookies.user.userId;
+
+  if (!userId) {
+    return res.status(401).send({ message: "User not authenticated" });
+  }
+
+  try {
+    const [rows] = await con.execute("SELECT balance FROM register WHERE IDOfUser = ?", [userId]);
+
+    if (rows.length === 1) {
+      res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      return res.status(200).send({ balance: rows[0].balance });
+    } else {
+      return res.status(404).send({ message: "User not found" });
+    }
+  } catch (error) {
+    console.error("Error fetching balance:", error);
+    return res.status(500).send({ message: "Internal Server Error", error: error });
+  }
+});
+
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
