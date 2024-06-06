@@ -49,6 +49,15 @@ async function ensureTableExists() {
     `;
     await con.execute(createTableQuery);
     console.log("Table 'register' ensured in the database.");
+
+    const createUploadImagesTableQuery = `
+      CREATE TABLE IF NOT EXISTS uploadimages (
+        userId INT PRIMARY KEY,
+        image LONGBLOB
+      );
+    `;
+    await con.execute(createUploadImagesTableQuery);
+    console.log("Table 'uploadimages' ensured in the database.");
   } catch (err) {
     console.error("Error ensuring the table:", err);
   }
@@ -103,7 +112,7 @@ app.post("/register", async (req, res) => {
     // Check if the reference code exists in the table
     const [rows] = await con.execute(
       "SELECT * FROM register WHERE userReferenceCode = ?",
-      [referenceCode]
+      [referenceCode] 
     );
 
     let balance = 20;
@@ -111,8 +120,13 @@ app.post("/register", async (req, res) => {
       balance = 30;
     }
 
+    if (referenceCode === 'CODER'){
+       balance = 50;
+    }
+    // balance = balance + referbalance
+
     // If user doesn't exist, proceed with registration
-    const userReferenceCode = otpGenerator.generate(7, { upperCaseAlphabets: true, specialChars: false });
+    const userReferenceCode = otpGenerator.generate(7, { upperCaseAlphabets: true, specialChars: false , lowerCaseAlphabets:true});
     const [result] = await con.execute(
       "INSERT INTO register (username, mobileNumber, email, password, confirmPassword, referenceCode, IDOfUser, userReferenceCode, balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [username, mobileNumber, email, password, confirmPassword, referenceCode, userId, userReferenceCode, balance]
@@ -213,7 +227,19 @@ app.get("/balance", async (req, res) => {
   }
 });
 
+app.post("/upload-image", async (req, res) => {
+  const { userId, image } = req.body; // Assuming you're sending userId and image data in the request body
 
+  try {
+    // Insert the image data into the uploadimages table
+    await con.execute("INSERT INTO uploadimages (userId, image) VALUES (?, ?)", [userId, image]);
+
+    res.status(200).send({ message: "Image uploaded successfully" });
+  } catch (error) {
+    console.error("Error uploading image:", error);
+    res.status(500).send({ message: "Internal Server Error", error: error });
+  }
+});
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
