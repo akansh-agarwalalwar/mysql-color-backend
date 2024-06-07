@@ -156,7 +156,7 @@ app.post("/login", async (req, res) => {
     if (rows.length === 1) {
       const user = rows[0];
       res.cookie('user', { userId: user.IDOfUser, username: user.username, balance: user.balance }, { httpOnly: true, maxAge: 24 * 60 * 60 * 1000, sameSite: 'Lax' }); // 1 day
-      return res.status(200).send({ message: "Login successful", userId: user.IDOfUser, username: user.username, balance: user.balance });
+      return res.status(200).send({ message: "Login successful", userId: user.IDOfUser, username: user.username, balance: user.balance, userEmail: user.email });
     } else {
       return res.status(401).send({ message: "Invalid email or password" });
     }
