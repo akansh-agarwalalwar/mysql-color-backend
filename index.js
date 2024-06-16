@@ -9,6 +9,11 @@ const cookieParser = require("cookie-parser");
 const app = express();
 app.use(bodyParser.json());
 app.use(cookieParser());
+// app.use((req, res, next) => {
+//   console.log('Headers:', req.headers);
+//   console.log('Cookies:', req.cookies);
+//   next();
+// });
 const dotenv = require("dotenv");
 dotenv.config();
 
@@ -29,7 +34,7 @@ const con = mysql.createPool({
   password: process.env.MYSQL_PASSWORD,
   host: process.env.MYSQL_HOST,
   database: process.env.MYSQL_DB,
-  port:3306
+  port: 3306,
 });
 
 async function ensureTableExists() {
@@ -85,12 +90,68 @@ async function ensureTableExists() {
     `;
 
     await con.execute(createRechargeHistory);
-    console.log("Teable 'recharge' enured in the database" )
+    console.log("Table 'recharge' ensured in the database");
+
+    const createAllPeriodsTableThirtySecond = `
+    CREATE TABLE IF NOT EXISTS allperiodsThirtySecond (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    periodNumber VARCHAR(255) NOT NULL,
+    periodDate DATE,
+    periodTime VARCHAR(255),
+    colorWinner VARCHAR(255) NOT NULL,
+    numberWinner VARCHAR(255) NOT NULL
+    );
+    `;
+
+    await con.execute(createAllPeriodsTableThirtySecond);
+    console.log("Table 'All Periods Thirty Second' ensured in the database");
+
+    const createAllUserPeriodsTableThirtySecond = `
+    CREATE TABLE IF NOT EXISTS alluserperiodsThirtySecond (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    IDOfUser BIGINT,
+    periodNumber VARCHAR(255) NOT NULL,
+    periodDate DATE NOT NULL,
+    periodTime VARCHAR(255) NOT NULL,
+    betType ENUM('number','color'),
+    berforeBetAmount BIGINT NOT NULL,
+    betAmount BIGINT NOT NULL,
+    afterBetAmount BIGINT NOT NULL,
+    status ENUM('win', 'lose')
+  ); 
+    `;
+
+    await con.execute(createAllUserPeriodsTableThirtySecond);
+    console.log("Table 'Thirty Second User Table' ensured in the database");
+
+    const createWithdrawHistory = `
+    CREATE TABLE IF NOT EXISTS withdrawhistory (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    userId BIGINT NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL ,
+    withdrawDate DATE NOT NULL,
+    status ENUM('approved', 'denied','pending') DEFAULT 'pending'
+  );
+    `;
+    await con.execute(createWithdrawHistory);
+    console.log("Table 'Withdraw History' ensured in the database");
+
+    const bankUserDetails = `
+    CREATE TABLE IF NOT EXISTS bankDetails (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        userId BIGINT NOT NULL,
+        accountNumber VARCHAR(255) NOT NULL,
+        ifscCode VARCHAR(255) NOT NULL
+    );
+`;
+    await con.execute(bankUserDetails);
+    console.log("Table 'Bank Details' ensured in the database");
 
     // Insert predefined admin credentials
     const predefinedAdmins = [
       { adminemail: "akansh@gmail.com", password: "akansh" },
       { adminemail: "aka@gmail.com", password: "akansh" },
+      { adminemail: "akan@gmail.com", password: "akansh" },
     ];
     for (const admin of predefinedAdmins) {
       const [rows] = await con.execute(
@@ -102,7 +163,6 @@ async function ensureTableExists() {
           "INSERT INTO admin (adminemail, password) VALUES (?, ?)",
           [admin.adminemail, admin.password]
         );
-        console.log(`Inserted predefined admin: ${admin.adminemail}`);
       }
     }
   } catch (err) {
@@ -409,6 +469,10 @@ app.post("/api/payments/approve", async (req, res) => {
       "UPDATE register SET balance = balance + ? WHERE IDOfUser = ?",
       [payment.amount, payment.userId]
     );
+    await con.execute(
+      "INSERT INTO rechargehistory (userId, amount, rechargeDate, status) VALUES (?, ?, CURDATE(), 'approved')",
+      [payment.userId, payment.amount]
+    );
 
     res.status(200).send({ message: "Payment approved" });
   } catch (error) {
@@ -431,15 +495,42 @@ app.post("/api/payments/deny", async (req, res) => {
       'UPDATE uploadimages SET status = "denied" WHERE id = ?',
       [id]
     );
+
+    const [paymentRows] = await con.execute(
+      "SELECT userId, amount FROM uploadimages WHERE id = ?",
+      [id]
+    );
+    const payments = paymentRows[0];
+    await con.execute(
+      "INSERT INTO rechargehistory (userId, amount, rechargeDate, status) VALUES (?, ?, CURDATE(), 'denied')",
+      [payments.userId, payments.amount]
+    );
+
     res.status(200).send({ message: "Payment denied" });
   } catch (error) {
     console.error("Error denying payment:", error);
     res.status(500).send({ message: "Error denying payment" });
-  } 
-  
+  }
 });
 
 app.get("/api/payments/history", async (req, res) => {
+  const userId = req.query.userId;
+  if (!userId) {
+    return res.status(400).send({ message: "Missing userId parameter" });
+  }
+
+  try {
+    const [paymentHistory] = await con.execute(
+      'SELECT * FROM rechargeHistory WHERE status != "pending" AND userId = ?',
+      [userId]
+    );
+    res.status(200).json(paymentHistory);
+  } catch (error) {
+    console.error("Error fetching payment history:", error);
+    res.status(500).send({ message: "Error fetching payment history" });
+  }
+});
+app.get("/api/payments/updatedHistory", async (req, res) => {
   try {
     const [paymentHistory] = await con.execute(
       'SELECT * FROM uploadimages WHERE status != "pending"'
@@ -450,27 +541,212 @@ app.get("/api/payments/history", async (req, res) => {
     res.status(500).send({ message: "Error fetching payment history" });
   }
 });
-app.get("/api/balance", async (req, res) => {
-  const user = req.cookies.user;
-  console.log(user)
-  console.log("###################")
+app.get("/api/payemnt/history123", async (req, res) => {
+  const userId = req.query.userId;
+  if (!userId) {
+    console.error("userId is undefined");
+    return res.status(400).send("Bad Request: userId is required");
+  }
   try {
     const [rows] = await con.execute(
-      "SELECT balance FROM register WHERE IDOfUser = ?",
-      [user.userId]
+      "SELECT  id, userId, amount, rechargeDate,status FROM rechargehistory WHERE userId = ?",
+      [userId]
     );
-    console.log("###################")
-    if (rows.length === 0) {
-      return res.status(404).send("User not found");
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching recharge payments:", error);
+    res.status(500).send("Error fetching recharge payments.");
+  }
+});
+
+app.post("/api/withdraw", async (req, res) => {
+  const { userId, amount } = req.body;
+
+  if (!userId || !amount || amount <= 0) {
+    return res.status(400).send({ message: "Invalid request" });
+  }
+
+  try {
+    const [userRows] = await con.execute(
+      "SELECT balance FROM register WHERE IDOfUser = ?",
+      [userId]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).send({ message: "User not found" });
     }
-    console.log("###################")
-    res.status(200).json({ balance: rows[0].balance });
+    const userBalance = userRows[0].balance;
+    if (userBalance < amount) {
+      return res.status(400).send({ message: "Insufficient balance" });
+    }
+
+    // Deduct amount from user balance
+    await con.execute(
+      "UPDATE register SET balance = balance - ? WHERE IDOfUser = ?",
+      [amount, userId]
+    );
+
+    // Create a withdrawal request and insert it into withdraw history
+    await con.execute(
+      "INSERT INTO withdrawhistory (userId, amount, withdrawDate) VALUES (?, ?, CURDATE())",
+      [userId, amount]
+    );
+
+    res
+      .status(200)
+      .send({ message: "Withdrawal request submitted successfully" });
+  } catch (error) {
+    console.error("Error processing withdrawal:", error);
+    res.status(500).send({ message: "Internal Server Error", error: error });
+  }
+});
+
+app.get("/api/withdrawl/history", async (req, res) => {
+  try {
+    const [rows] = await con.execute(
+      "SELECT id, userId, amount, withdrawDate,status FROM withdrawhistory"
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching withdrawal payments:", error);
+    res.status(500).send("Error fetching withdrawal payments.");
+  }
+});
+app.post("/api/withdrawals/accept", async (req, res) => {
+  const { id } = req.body;
+  try {
+    const [withdrawalRows] = await con.execute(
+      "SELECT * FROM withdrawhistory WHERE id = ?",
+      [id]
+    );
+    if (withdrawalRows.length === 0) {
+      return res.status(404).send({ message: "Withdrawal not found" });
+    }
+
+    const withdrawal = withdrawalRows[0];
+    await con.execute(
+      'UPDATE withdrawhistory SET status = "approved" WHERE id = ?',
+      [id]
+    );
+
+    await con.execute(
+      "UPDATE register SET balance = balance - ? WHERE IDOfUser = ?",
+      [withdrawal.amount, withdrawal.userId]
+    );
+
+    res.status(200).send({ message: "Withdrawal accepted" });
+  } catch (error) {
+    console.error("Error accepting withdrawal:", error);
+    res.status(500).send({ message: "Error accepting withdrawal" });
+  }
+});
+app.get("/api/withdrawl/processed-history", async (req, res) => {
+  try {
+    const [paymentHistory] = await con.execute(
+      'SELECT * FROM withdrawhistory WHERE status != "pending"'
+    );
+    res.status(200).json(paymentHistory);
+  } catch (error) {
+    console.error("Error fetching withdrawal history:", error);
+    res.status(500).send({ message: "Error fetching withdrawal history" });
+  }
+});
+
+app.post("/api/withdrawals/deny", async (req, res) => {
+  const { id } = req.body;
+  try {
+    const [withdrawalRows] = await con.execute(
+      "SELECT * FROM withdrawhistory WHERE id = ?",
+      [id]
+    );
+    if (withdrawalRows.length === 0) {
+      return res.status(404).send({ message: "Withdrawal not found" });
+    }
+
+    const withdrawal = withdrawalRows[0];
+    await con.execute(
+      'UPDATE withdrawhistory SET status = "denied" WHERE id = ?',
+      [id]
+    );
+
+    res.status(200).send({ message: "Withdrawal denied" });
+  } catch (error) {
+    console.error("Error denying withdrawal:", error);
+    res.status(500).send({ message: "Error denying withdrawal" });
+  }
+});
+
+app.get("/api/balance", async (req, res) => {
+  // console.log("###############################");
+  const userId = req.query.userId;
+  console.log(userId);
+  // console.log("###############################");
+  if (!userId) {
+    console.error("userId is undefined");
+    return res.status(400).send("Bad Request: userId is required");
+  }
+  try {
+    const [rows] = await con.execute(
+      "SELECT balance FROM register WHERE userId = ?",
+      [userId]
+    );
+    res.json(rows);
+    console.log("###############################");
   } catch (error) {
     console.error("Error fetching balance:", error);
     res.status(500).send("Error fetching balance");
   }
 });
 
+app.post("/api/bank-details", async (req, res) => {
+  const { userId, accountNumber, ifscCode } = req.body;
+  try {
+    await con.execute(
+      "INSERT INTO bankdetails (userId, accountNumber, ifscCode) VALUES (?, ?, ?)",
+      [userId, accountNumber, ifscCode]
+    );
+    res.status(200).send({ message: "Bank Details Submitted Successfully" });
+  } catch (error) {
+    console.error("Error submitting bank details:", error);
+    res.status(500).send({ message: "Error submitting bank details" });
+  }
+});
+
+app.get("/api/bank-details/:userId", async (req, res) => {
+  const { userId } = req.params; // Correctly extract userId from params
+
+  try {
+    const [rows] = await con.execute(
+      "SELECT accountNumber, ifscCode FROM bankdetails WHERE userId = ?",
+      [userId]
+    );
+    if (rows.length > 0) {
+      res.status(200).send(rows[0]);
+    } else {
+      res.status(404).send({ message: "Bank details not found" });
+    }
+  } catch (error) {
+    console.error("Error fetching bank details:", error);
+    res.status(500).send({ message: "Error fetching bank details" });
+  }
+});
+
+
+app.get("/api/bank", async (req, res) => {
+  const { userId } = req.query; // use req.query to get the query parameter
+  try {
+    const [rows] = await con.execute(
+      "SELECT accountNumber, ifscCode FROM bankDetails WHERE userId = ?",
+      [userId]
+    );
+    res.json(rows[0]); // assuming you get one row per user
+  } catch (error) {
+    console.error("Error bank details:", error);
+    res.status(500).send("Error fetching bank details");
+  }
+});
+
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
+ 
