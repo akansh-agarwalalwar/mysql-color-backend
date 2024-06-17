@@ -604,7 +604,24 @@ app.post("/api/withdraw", async (req, res) => {
 app.get("/api/withdrawl/history", async (req, res) => {
   try {
     const [rows] = await con.execute(
-      "SELECT id, userId, amount, withdrawDate,status FROM withdrawhistory"
+      'SELECT id, userId, amount, withdrawDate,status FROM withdrawhistory WHERE status = "pending"'
+    );
+    res.json(rows);
+  } catch (error) {
+    console.error("Error fetching withdrawal payments:", error);
+    res.status(500).send("Error fetching withdrawal payments.");
+  }
+});
+app.get("/api/show/withdrawl/history", async (req, res) => {
+  const userId = req.query.userId;
+  if (!userId) {
+    console.error("userId is undefined");
+    return res.status(400).send("Bad Request: userId is required");
+  }
+  try {
+    const [rows] = await con.execute(
+      'SELECT amount, withdrawDate,status FROM withdrawhistory WHERE userId = ?',
+      [userId]
     );
     res.json(rows);
   } catch (error) {
@@ -651,10 +668,10 @@ app.get("/api/withdrawl/processed-history", async (req, res) => {
     res.status(500).send({ message: "Error fetching withdrawal history" });
   }
 });
-
 app.post("/api/withdrawals/deny", async (req, res) => {
   const { id } = req.body;
   try {
+    // Fetch the withdrawal details
     const [withdrawalRows] = await con.execute(
       "SELECT * FROM withdrawhistory WHERE id = ?",
       [id]
@@ -664,34 +681,53 @@ app.post("/api/withdrawals/deny", async (req, res) => {
     }
 
     const withdrawal = withdrawalRows[0];
+    const { userId, amount } = withdrawal;
+
+    // Update the withdrawal status to 'denied'
     await con.execute(
       'UPDATE withdrawhistory SET status = "denied" WHERE id = ?',
       [id]
     );
 
-    res.status(200).send({ message: "Withdrawal denied" });
+    // Fetch the user's current balance
+    const [userRows] = await con.execute(
+      "SELECT balance FROM register WHERE IDOfUser = ?",
+      [userId]
+    );
+    if (userRows.length === 0) {
+      return res.status(404).send({ message: "User not found" });
+    }
+
+    const user = userRows[0];
+    const currentBalance = parseFloat(user.balance);
+    const withdrawalAmount = parseFloat(amount);
+    const newBalance = currentBalance + withdrawalAmount;
+
+    // Update the user's balance
+    await con.execute(
+      "UPDATE register SET balance = ? WHERE IDOfUser = ?",
+      [newBalance.toFixed(2), userId]
+    );
+
+    res.status(200).send({ message: "Withdrawal denied and balance updated" });
   } catch (error) {
     console.error("Error denying withdrawal:", error);
     res.status(500).send({ message: "Error denying withdrawal" });
   }
 });
 
-app.get("/api/balance", async (req, res) => {
-  // console.log("###############################");
-  const userId = req.query.userId;
-  console.log(userId);
-  // console.log("###############################");
+app.get("/api/balance/:userId", async (req, res) => {
+  const userId = req.params.userId;
   if (!userId) {
     console.error("userId is undefined");
     return res.status(400).send("Bad Request: userId is required");
   }
   try {
     const [rows] = await con.execute(
-      "SELECT balance FROM register WHERE userId = ?",
+      "SELECT balance FROM register WHERE IDOfUser = ?",
       [userId]
     );
     res.json(rows);
-    console.log("###############################");
   } catch (error) {
     console.error("Error fetching balance:", error);
     res.status(500).send("Error fetching balance");
@@ -731,7 +767,6 @@ app.get("/api/bank-details/:userId", async (req, res) => {
   }
 });
 
-
 app.get("/api/bank", async (req, res) => {
   const { userId } = req.query; // use req.query to get the query parameter
   try {
@@ -745,8 +780,21 @@ app.get("/api/bank", async (req, res) => {
     res.status(500).send("Error fetching bank details");
   }
 });
+app.get("/api/invite/refer/:userId", async (req, res) => {
+  const userId = req.params.userId;
+
+  try {
+    const [rows] = await con.execute(
+      "SELECT userReferenceCode FROM register WHERE IDOfUser = ?",
+      [userId]
+    );
+    res.json(rows[0]);
+  } catch (error) {
+    console.error("Error fetching referrals:", error);
+    res.status(500).send("Error fetching referrals");
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
- 
