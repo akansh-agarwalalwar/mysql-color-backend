@@ -9,11 +9,6 @@ const cookieParser = require("cookie-parser");
 const app = express();
 app.use(bodyParser.json());
 app.use(cookieParser());
-// app.use((req, res, next) => {
-//   console.log('Headers:', req.headers);
-//   console.log('Cookies:', req.cookies);
-//   next();
-// });
 const dotenv = require("dotenv");
 dotenv.config();
 
