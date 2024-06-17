@@ -34,7 +34,7 @@ const con = mysql.createPool({
   password: process.env.MYSQL_PASSWORD,
   host: process.env.MYSQL_HOST,
   database: process.env.MYSQL_DB,
-  port: 3306,
+  port: process.env.MYSQL_PORT,
 });
 
 async function ensureTableExists() {
