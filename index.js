@@ -19,7 +19,7 @@ dotenv.config();
 
 app.use(express.json());
 const corsOptions = {
-  origin: "*",
+  origin: "https://mysql-react-frontend-color.vercel.app",
   methods: ["POST", "GET"],
   credentials: true,
   optionsSuccessStatus: 200,
